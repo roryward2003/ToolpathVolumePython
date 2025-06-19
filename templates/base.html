@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Volume Calculator</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.js"></script>
+    <style>
+        body {
+            background-color: #f9fafb;
+        }
+        .ui.success.message {
+            background-color: #e6f4ea;
+            color: #276749;
+            border: 1px solid #a0d5ab;
+        }
+        .ui.error.message {
+            background-color: #fdecea;
+            color: #9f3a38;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="margin-top: 50px;" class="ui center aligned header">SVG Volume Calculator</h1>
+
+    <div class="ui grid">
+        <div class="six wide column" style="padding-left: 50px;">
+            <form class="ui form" action="/upload" method="post" enctype="multipart/form-data" style="margin-bottom: 30px;">
+                <div class="field">
+                    <label>Upload SVG File</label>
+                    <input type="file" name="svgfile" accept=".svg" required>
+                    <button class="ui teal button" type="submit" style="margin-top: 10px;">Upload</button>
+                </div>
+            </form>
+
+            <form class="ui form" action="/calculate" method="post">
+                <div class="field">
+                    <label>Depth of cut (mm)</label>
+                    <input type="text" name="title" placeholder="e.g. 1.5">
+                </div>
+                <button type="submit" class="ui teal button">Calculate Volume</button>
+            </form>
+
+            <div style="margin-top: 20px;">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            {% if category == 'error' %}
+                                <div class="ui error message">{{ message }}</div>
+                            {% elif category == 'success' %}
+                                <div class="ui success message">{{ message }}</div>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+
+        <div class="ten wide column">
+            <div class="ui segment" style="margin-top: 22px;">
+                <object type="image/svg+xml" data="/static/uploads/uploaded.svg" width="100%" height="500px">
+                    SVG Preview Not Available
+                </object>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
