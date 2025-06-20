@@ -36,11 +36,11 @@ OK
 ```
 # Running a specific test
 
-This example runs a single test in the class TodoTestCase, with the name "test_home"
+This example runs a single test in the class SvgVolumeTestCase, with the name "test_home"
 
 ```sh
 ./build_docker.sh my_app
-docker run -t my_app ./run_tests.sh TodoTestCase.test_home
+docker run -t my_app ./run_tests.sh SvgVolumeTestCase.test_home
 ```
 
 # Running a flask dev server

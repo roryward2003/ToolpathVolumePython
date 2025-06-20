@@ -1,73 +1,156 @@
+import io
+import os
 import unittest
-from app import app, db, Todo 
+from app import app, stored_svg_path
 
-class TodoTestCase(unittest.TestCase):
+class SvgVolumeTestCase(unittest.TestCase):
 
+    # Setup environment for testing
     def setUp(self):
-        # Configure the app for testing
         app.config['TESTING'] = True
-        # Use an in-memory SQLite database for tests
-        app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
-        # Create the test client
-        self.app = app.test_client()
-        # Push the application context and create all tables
-        self.ctx = app.app_context()
-        self.ctx.push()
-        db.create_all()
+        self.client = app.test_client()
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+    # Clean any environment changes
     def tearDown(self):
-        # Cleanup the database and remove the app context
-        db.session.remove()
-        db.drop_all()
-        self.ctx.pop()
+        if os.path.exists(stored_svg_path):
+            os.remove(stored_svg_path)
 
+    # Helper function for loading the test svg files
+    def load_svg_file(self, filename):
+        testdata_path = os.path.join("static", "testdata", filename)
+        with open(testdata_path, 'rb') as f:
+            return io.BytesIO(f.read())
+
+    # Test that the home page appears
     def test_home(self):
-        # Test that the home route ("/") returns a 200 OK status code.
-        response = self.app.get("/")
+        response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        # Optionally, check for expected content in the rendered template.
-        self.assertIn(b"Todo", response.data)
+        self.assertIn(b"SVG Volume Calculator", response.data)
 
-    def test_add_todo(self):
-        # Test posting a new todo item using the "/add" route.
-        response = self.app.post("/add", data={"title": "Test Todo"}, follow_redirects=True)
+    # Test that valid svg files upload
+    def test_upload_valid_svg(self):
+        svg_data = self.load_svg_file("Square-200x200.svg")
+        data = {'svgfile': (svg_data, 'Square-200x200.svg')}
+        response = self.client.post("/upload", data=data, content_type='multipart/form-data', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        # Verify that the new todo has been added to the database.
-        todo = Todo.query.filter_by(title="Test Todo").first()
-        self.assertIsNotNone(todo)
-        self.assertFalse(todo.complete)
+        self.assertIn(b"SVG uploaded successfully!", response.data)
 
-    def test_update_todo(self):
-        # Manually add a todo item to update.
-        todo = Todo(title="Update Test", complete=False)
-        db.session.add(todo)
-        db.session.commit()
-        todo_id = todo.id
-
-        # Toggle its 'complete' value by accessing the update route.
-        response = self.app.get(f"/update/{todo_id}", follow_redirects=True)
+    # Test that invalid svg files do not upload
+    def test_upload_invalid_file(self):
+        data = {'svgfile': (b'not-an-svg', 'Invalid.txt')}
+        response = self.client.post("/upload", data=data, content_type='multipart/form-data', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        # Use Session.get() instead of Query.get()
-        updated_todo = db.session.get(Todo, todo_id)
-        self.assertTrue(updated_todo.complete)
+        self.assertIn(b"Invalid file format", response.data)
 
-    def test_delete_todo(self):
-        # Manually add a todo item to delete.
-        todo = Todo(title="Delete Test", complete=False)
-        db.session.add(todo)
-        db.session.commit()
-        todo_id = todo.id
-
-        # Delete the todo using the delete route.
-        response = self.app.get(f"/delete/{todo_id}", follow_redirects=True)
+    # Calculation should not succeed without a valid svg files
+    def test_calculate_without_upload(self):
+        self.tearDown()
+        response = self.client.post("/calculate", data={"title": "5"}, follow_redirects=True)
         self.assertEqual(response.status_code, 200)
-        # Use Session.get() instead of Query.get()
-        deleted_todo = db.session.get(Todo, todo_id)
-        self.assertIsNone(deleted_todo)
+        self.assertIn(b"No SVG uploaded", response.data)
 
-    # def test_failure(self):
-    #     # Simulate a failure case
-    #     self.assertFalse(True, "This test should fail.")
+    # Calculation should not succeed with an invalid depth
+    def test_calculate_invalid_depth(self):
+        svg_data = self.load_svg_file("Square-200x200.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Square-200x200.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "oops"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Invalid depth", response.data)
+
+    # Calculation should not succeed with an empty depth
+    def test_calculate_empty_depth(self):
+        svg_data = self.load_svg_file("Square-200x200.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Square-200x200.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": ""}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Invalid depth", response.data)
+    
+    # Simple cuboid calculation (200mm*200mm*10mm = 400ml)
+    def test_calculate_valid_square(self):
+        svg_data = self.load_svg_file("Square-200x200.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Square-200x200.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 400.00 ml", response.data)
+    
+    # Simple cuboid calculation with floating point depth (200mm*200mm*2.5mm = 100ml)
+    def test_calculate_valid_square_float_depth(self):
+        svg_data = self.load_svg_file("Square-200x200.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Square-200x200.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "2.50"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 100.00 ml", response.data)
+    
+    # Nested cuboids calculation ((200mm*200mm) - (100mm*100mm)) * 10mm = 300ml
+    def test_calculate_valid_nested_squares(self):
+        svg_data = self.load_svg_file("Squares-200x200-100x100.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Squares-200x200-100x100.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 300.00 ml", response.data)
+    
+    # Irregular shape with straight sides (complexArea * 10mm = 354.6ml)
+    def test_calculate_valid_irregular_shape(self):
+        svg_data = self.load_svg_file("IrregularShape.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'IrregularShape.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 354.6", response.data)
+    
+    # Simple circlular prism calculation ((pi*100mm^2) * 10mm = 314.xxml)
+    def test_calculate_valid_circle(self):
+        svg_data = self.load_svg_file("ArcCircle-r100.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'ArcCircle-r100.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 314", response.data)
+    
+    # Simple bezier circlular prism calculation ((pi*100mm^2) * 10mm = 314.xxml)
+    def test_calculate_valid_bezier_circle(self):
+        svg_data = self.load_svg_file("BezCircle-r100.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'BezCircle-r100.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 314", response.data)
+    
+    # Nested circlular prisms calculation ((pi*100mm^2) - (pi*50mm^2)) * 10mm = 235.xxml)
+    def test_calculate_valid_nested_circles_1(self):
+        svg_data = self.load_svg_file("Circles-r100-r50.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'Circles-r100-r50.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 235", response.data)
+    
+    # Nested circlular prisms calculation ((pi*100mm^2) - (pi*25mm^2) - (pi*25mm^2)) * 10mm = 274.xxml)
+    def test_calculate_valid_nested_circles_2(self):
+        svg_data = self.load_svg_file("NestedCircles-r100-r25-r25.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'NestedCircles-r100-r25-r25.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 274", response.data)
+        
+    # Test bezier curve accuracy using (pi*100mm^2) = 314.13159....
+    def test_calculate_bezier_accuracy_1(self):
+        svg_data = self.load_svg_file("BezCircle-r100.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'BezCircle-r100.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Calculated volume: 314.1", response.data)
+        
+    # Test bezier curve accuracy using (pi*100mm^2) = 314.13159....
+    def test_calculate_bezier_accuracy_2(self):
+        svg_data = self.load_svg_file("BezCircle-r100.svg")
+        self.client.post("/upload", data={'svgfile': (svg_data, 'BezCircle-r100.svg')}, content_type='multipart/form-data', follow_redirects=True)
+        response = self.client.post("/calculate", data={"title": "10"}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            any(
+                val in response.data
+                for val in [b"314.13", b"314.14", b"314.15", b"314.16"]
+            ),
+            "Calculated volume not in expected range"
+        )
 
 if __name__ == "__main__":
     unittest.main()
